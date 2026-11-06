@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Swarm – browser check</title>
+<style>
+  body{margin:0;padding:32px;background:#0a0a0b;color:#ecebe6;font:14px/1.5 ui-monospace,Consolas,monospace}
+  h1{font:600 22px/1.2 system-ui,sans-serif;letter-spacing:.2em;text-transform:uppercase;margin:0 0 6px}
+  p{color:#8a8982;max-width:70ch}
+  a{color:#e5472a}
+  table{border-collapse:collapse;margin:18px 0;width:100%;max-width:900px}
+  td{padding:8px 10px;border-bottom:1px solid #2a2a2d;vertical-align:top}
+  td:first-child{color:#8a8982;width:240px}
+  .ok{color:#7ddc9a}.warn{color:#f2b134}.bad{color:#e5472a}
+  button{font:inherit;color:#0a0a0b;background:#e5472a;border:0;border-radius:99px;padding:9px 18px;cursor:pointer}
+  pre{background:#141416;padding:14px;border-radius:6px;max-width:900px;white-space:pre-wrap}
+</style>
+</head>
+<body>
+<h1>Swarm – browser check</h1>
+<p>If <a href="./">Swarm</a> feels slow or freezes, this page measures in a few seconds what is slow in your browser. It never freezes itself: the rows fill in one after another. At the end you can copy the result.</p>
+<table id="t"></table>
+<button id="copy" style="display:none">Copy result</button>
+<pre id="out" style="display:none"></pre>
+<script>
+const rows = [], tbl = document.getElementById('t');
+const pause = () => new Promise(r => setTimeout(r, 40));
+function add(name, value, cls){
+  rows.push(name + ': ' + value);
+  const tr = document.createElement('tr');
+  tr.innerHTML = '<td></td><td class="' + (cls || '') + '"></td>';
+  tr.children[0].textContent = name; tr.children[1].textContent = value; tbl.appendChild(tr);
+}
+(async () => {
+  add('Browser', navigator.userAgent.replace(/Mozilla\/5.0 /, ''));
+  add('Screen', screen.width + '×' + screen.height + ' · window ' + innerWidth + '×' + innerHeight + ' · pixel ratio ' + devicePixelRatio);
+  add('CPU cores / memory', (navigator.hardwareConcurrency || '?') + ' cores · ' + (navigator.deviceMemory || '?') + ' GB');
+  await pause();
+
+  // 1) JavaScript speed (very slow if the JIT is switched off, e.g. Edge "Enhanced security")
+  let t0 = performance.now(), s = 0;
+  for (let i = 0; i < 12e6; i++){ s += Math.sqrt(i) * 1.0000001; }
+  const jsMs = Math.round(performance.now() - t0);
+  add('JavaScript speed (12M steps)', jsMs + ' ms ' + (jsMs < 150 ? '– good' : jsMs < 500 ? '– moderate' : '– VERY SLOW (JIT may be disabled)'), jsMs < 150 ? 'ok' : jsMs < 500 ? 'warn' : 'bad');
+  await pause();
+
+  // 2) WebGL: hardware or software?
+  const c = document.createElement('canvas'); c.width = 1280; c.height = 720;
+  const gl = c.getContext('webgl', { antialias:false, preserveDrawingBuffer:true });
+  if (!gl) add('WebGL', 'NOT available – Swarm cannot run like this', 'bad');
+  else {
+    const dbg = gl.getExtension('WEBGL_debug_renderer_info');
+    const gpu = dbg ? gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER);
+    const soft = /swiftshader|software|llvmpipe|basic render|microsoft basic/i.test(gpu);
+    add('Graphics (WebGL)', gpu + (soft ? ' – SOFTWARE rendering, no graphics acceleration!' : ''), soft ? 'bad' : 'ok');
+    await pause();
+    const sh = (t, src) => { const x = gl.createShader(t); gl.shaderSource(x, src); gl.compileShader(x); return x; };
+    const p = gl.createProgram();
+    gl.attachShader(p, sh(gl.VERTEX_SHADER, 'attribute vec2 a;void main(){gl_Position=vec4(a,0.,1.);gl_PointSize=6.;}'));
+    gl.attachShader(p, sh(gl.FRAGMENT_SHADER, 'precision mediump float;void main(){float r=length(gl_PointCoord-.5)*2.;gl_FragColor=vec4(1.,1.,1.,smoothstep(1.,.55,r));}'));
+    gl.linkProgram(p); gl.useProgram(p);
+    const d = new Float32Array(24000); for (let i = 0; i < d.length; i++) d[i] = Math.random()*2 - 1;
+    const b = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, b); gl.bufferData(gl.ARRAY_BUFFER, d, gl.DYNAMIC_DRAW);
+    const loc = gl.getAttribLocation(p, 'a'); gl.enableVertexAttribArray(loc); gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
+    gl.enable(gl.BLEND); gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA); gl.viewport(0, 0, 1280, 720);
+    t0 = performance.now();
+    for (let f = 0; f < 40; f++){ gl.clearColor(0, 0, 0, 1); gl.clear(gl.COLOR_BUFFER_BIT); gl.bufferData(gl.ARRAY_BUFFER, d, gl.DYNAMIC_DRAW); gl.drawArrays(gl.POINTS, 0, 12000); }
+    gl.finish(); const px = new Uint8Array(4); gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px);
+    const per = (performance.now() - t0) / 40;
+    add('Drawing (12,000 points, HD)', per.toFixed(1) + ' ms per frame ' + (per < 8 ? '– good' : per < 25 ? '– moderate' : '– SLOW'), per < 8 ? 'ok' : per < 25 ? 'warn' : 'bad');
+  }
+  await pause();
+
+  // 3) Canvas read-back (used to analyse images; privacy extensions can make this very slow)
+  const k = document.createElement('canvas'); k.width = 320; k.height = 213; const kx = k.getContext('2d', { willReadFrequently:true });
+  kx.fillStyle = '#888'; kx.fillRect(0, 0, 320, 213);
+  t0 = performance.now(); for (let i = 0; i < 20; i++) kx.getImageData(0, 0, 320, 213);
+  const rd = (performance.now() - t0) / 20;
+  add('Image read-back (canvas)', rd.toFixed(1) + ' ms ' + (rd < 3 ? '– good' : rd < 15 ? '– moderate' : '– SLOW (extension?)'), rd < 3 ? 'ok' : rd < 15 ? 'warn' : 'bad');
+  await pause();
+
+  // 4) Network: Google Fonts reachable?
+  try {
+    const ctl = new AbortController(), timer = setTimeout(() => ctl.abort(), 4000); t0 = performance.now();
+    await fetch('https://fonts.googleapis.com/css2?family=DM+Mono', { mode:'no-cors', signal: ctl.signal }); clearTimeout(timer);
+    add('Google Fonts reachable', 'yes (' + Math.round(performance.now() - t0) + ' ms)', 'ok');
+  } catch (e){ add('Google Fonts reachable', 'NO or too slow (4 s) – the app then uses fallback fonts', 'warn'); }
+
+  document.getElementById('out').style.display = 'block'; document.getElementById('out').textContent = rows.join('\n');
+  const btn = document.getElementById('copy'); btn.style.display = 'inline-block';
+  btn.onclick = () => navigator.clipboard.writeText(rows.join('\n')).then(() => btn.textContent = 'Copied ✓');
+})();
+</script>
+</body>
+</html>

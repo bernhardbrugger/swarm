@@ -1,0 +1,1253 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Swarm — images become motion</title>
+<meta name="description" content="Drop in up to four images, or use your webcam, and watch them turn into a living swarm of particles. Rotate in 3D, add depth with an on-device AI model, react to sound. Runs entirely in your browser.">
+<meta name="theme-color" content="#0a0a0b">
+<meta property="og:type" content="website">
+<meta property="og:title" content="Swarm — images become motion">
+<meta property="og:description" content="Turn images, text and your webcam into a living particle swarm. 3D, AI depth, sound reactive. Runs entirely in your browser.">
+<meta property="og:image" content="https://bernhardbrugger.github.io/swarm/docs/hero.jpg">
+<meta property="og:url" content="https://bernhardbrugger.github.io/swarm/">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 30 30'%3E%3Crect width='30' height='30' rx='7' fill='%230a0a0b'/%3E%3Cg fill='%23e5472a'%3E%3Ccircle cx='6' cy='22' r='1.9'/%3E%3Ccircle cx='12' cy='15' r='2.3'/%3E%3Ccircle cx='19' cy='20' r='1.6'/%3E%3Ccircle cx='25' cy='9' r='2.5'/%3E%3Ccircle cx='16.5' cy='7' r='1.3'/%3E%3Ccircle cx='8' cy='7.5' r='1.1'/%3E%3C/g%3E%3C/svg%3E">
+<!-- Fonts load asynchronously: if the network is slow or blocked, the page still starts at once with fallback fonts -->
+<link rel="preload" as="style" onload="this.onload=null;this.rel='stylesheet'" href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Fraunces:ital,opsz,wght@0,9..144,300..700;1,9..144,300..600&family=Unbounded:wght@300;500;600&display=swap">
+<script>
+/* Visible error report: if anything goes wrong at startup, show what and where instead of freezing silently */
+(function(){
+  function show(msg){
+    var d = document.getElementById('err');
+    if (!d){ d = document.createElement('div'); d.id = 'err'; (document.body || document.documentElement).appendChild(d); }
+    d.textContent = 'Something went wrong: ' + msg;
+  }
+  window.addEventListener('error', function(e){ show((e.message || 'error') + (e.lineno ? ' (line ' + e.lineno + ')' : '')); });
+  window.addEventListener('unhandledrejection', function(e){ show(String(e.reason && e.reason.message || e.reason)); });
+})();
+</script>
+<style>
+  :root{
+    --accent:#e5472a;
+    --serif:'Fraunces',Georgia,'Times New Roman',serif;
+    --display:'Unbounded','Arial Black',system-ui,sans-serif;
+    --mono:'DM Mono',ui-monospace,Consolas,monospace;
+  }
+  body[data-theme="light"]{
+    --bg:#f2f1ed; --ink:#141414; --muted:#7b7a74; --line:rgba(20,20,20,.16);
+    --panel:rgba(242,241,237,.94); --chip:rgba(20,20,20,.06); --on-accent:#f2f1ed;
+  }
+  body[data-theme="dark"]{
+    --bg:#0a0a0b; --ink:#ecebe6; --muted:#8a8982; --line:rgba(236,235,230,.16);
+    --panel:rgba(10,10,11,.93); --chip:rgba(236,235,230,.08); --on-accent:#0a0a0b;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%;overflow:hidden;background:var(--bg);color:var(--ink);
+    font-family:var(--mono);font-size:12px;letter-spacing:.02em;transition:background .5s,color .5s}
+  canvas#stage{position:fixed;inset:0;display:block;touch-action:none;cursor:crosshair}
+
+  /* ---- top bar: wordmark, key hints as keycaps, actions in one capsule ---- */
+  .bar{position:fixed;top:0;left:0;right:0;z-index:5;display:flex;align-items:center;gap:26px;min-height:58px;
+    padding:0 22px;background:var(--panel);border-bottom:1px solid var(--line)}
+  .brand{display:flex;align-items:center;gap:13px;flex:none;user-select:none}
+  .mark{width:30px;height:30px;overflow:visible}
+  .mark circle{fill:var(--accent);animation:float 5s ease-in-out infinite}
+  .mark circle:nth-child(2){animation-duration:6.3s;animation-delay:-1.2s}
+  .mark circle:nth-child(3){animation-duration:4.4s;animation-delay:-2.1s}
+  .mark circle:nth-child(4){animation-duration:7s;animation-delay:-.4s}
+  .mark circle:nth-child(5){animation-duration:5.6s;animation-delay:-3s}
+  .mark circle:nth-child(6){animation-duration:6.8s;animation-delay:-1.9s}
+  .mark circle:nth-child(7){animation-duration:4.9s;animation-delay:-2.6s}
+  @keyframes float{50%{transform:translate(2px,-2.6px)}}
+  .word{font-family:var(--display);font-weight:600;font-size:17px;letter-spacing:.24em;line-height:1;padding-top:1px}
+  .tag{display:flex;align-items:center;gap:8px;height:20px;padding-left:14px;border-left:1px solid var(--line);
+    color:var(--muted);font-size:10px;letter-spacing:.14em;text-transform:uppercase;white-space:nowrap}
+  .keys{display:flex;gap:18px;margin:0 auto;color:var(--muted);font-size:10.5px;white-space:nowrap}
+  .keys kbd{font:inherit;font-size:10px;color:var(--ink);background:var(--chip);border:1px solid var(--line);
+    border-bottom-width:2px;border-radius:5px;padding:1px 6px;margin-right:6px}
+  .acts{display:flex;flex:none;border:1px solid var(--line);border-radius:99px;overflow:hidden}
+  .acts button{padding:9px 15px;text-transform:uppercase;font-size:10.5px;letter-spacing:.12em;white-space:nowrap;
+    transition:background .18s,color .18s;border-left:1px solid var(--line)}
+  .acts a.gh{padding:9px 15px;text-transform:uppercase;font-size:10.5px;letter-spacing:.12em;white-space:nowrap;
+    color:var(--muted);text-decoration:none;border-left:1px solid var(--line);transition:background .18s,color .18s}
+  .acts a.gh:hover{background:var(--ink);color:var(--bg)}
+  .acts button:first-child{border-left:0}
+  .acts button:hover{background:var(--ink);color:var(--bg)}
+  .acts button.on,.acts button.rec{background:var(--accent);color:var(--on-accent)}
+  .acts button.on:hover,.acts button.rec:hover{background:var(--accent);filter:brightness(1.12)}
+  .acts button.rec{animation:pulse 1.2s infinite}
+  button{font:inherit;color:inherit;background:none;border:0;cursor:pointer;letter-spacing:inherit}
+  .add{padding:7px 12px;border:1px solid var(--line);border-radius:99px;text-transform:uppercase;
+    font-size:10.5px;letter-spacing:.12em;transition:.2s;white-space:nowrap}
+  .add:hover{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+  @keyframes pulse{50%{opacity:.6}}
+  @media (prefers-reduced-motion:reduce){.mark circle{animation:none}}
+
+  .dock{position:fixed;left:0;right:0;bottom:0;z-index:5;display:flex;flex-wrap:wrap;gap:14px 30px;
+    padding:15px 22px 17px;background:var(--panel);border-top:1px solid var(--line);max-height:46vh;overflow:auto}
+  .grp{display:flex;flex-direction:column;gap:7px}
+  .lbl{color:var(--muted);text-transform:uppercase;font-size:9.5px;letter-spacing:.2em}
+  .seg{display:flex;gap:2px;flex-wrap:wrap}
+  .seg button{padding:6px 11px;border-radius:99px;font-size:12px;transition:.18s;color:var(--muted)}
+  .seg button:hover{color:var(--ink)}
+  .seg button.on{background:var(--accent);color:var(--on-accent)}
+  .sliders{display:flex;gap:20px;flex-wrap:wrap;align-items:flex-end}
+  .sl{display:flex;flex-direction:column;gap:7px;min-width:118px}
+  .sl .lbl b{font-weight:400;color:var(--ink);float:right}
+  input[type=range]{-webkit-appearance:none;appearance:none;height:18px;background:transparent;width:100%;cursor:pointer}
+  input[type=range]::-webkit-slider-runnable-track{height:1px;background:var(--ink);opacity:.5}
+  input[type=range]::-moz-range-track{height:1px;background:var(--ink);opacity:.5}
+  input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:13px;height:13px;border-radius:50%;
+    background:var(--accent);margin-top:-6px;border:0}
+  input[type=range]::-moz-range-thumb{width:13px;height:13px;border-radius:50%;background:var(--accent);border:0}
+  input[type=text]{font:inherit;color:var(--ink);background:var(--chip);border:1px solid var(--line);border-radius:99px;
+    padding:7px 13px;width:150px;outline:none;letter-spacing:.02em}
+  input[type=text]:focus{border-color:var(--accent)}
+  .row{display:flex;gap:6px;align-items:center}
+  .thumbs{display:flex;gap:7px;align-items:center;min-height:36px}
+  .th{position:relative;height:36px;border-radius:3px;overflow:hidden;outline:1px solid var(--line)}
+  .th img{height:100%;display:block}
+  .th button{position:absolute;top:0;right:0;width:15px;height:15px;font-size:11px;line-height:15px;
+    background:var(--ink);color:var(--bg);opacity:0;transition:.15s}
+  .th:hover button{opacity:1}
+  .add{height:34px;padding:0 13px}
+  .add.on{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
+  .live{display:flex;align-items:center;height:36px;padding:0 12px;color:var(--accent);font-size:10.5px;letter-spacing:.16em;
+    border:1px solid var(--accent);border-radius:3px;animation:pulse 1.6s infinite}
+
+  .drop{position:fixed;inset:0;z-index:20;display:none;align-items:center;justify-content:center;
+    background:var(--bg);opacity:.93;text-align:center;border:2px dashed var(--accent);border-radius:6px}
+  .drop.on{display:flex}
+  .drop div{font-family:var(--display);font-weight:300;font-size:clamp(30px,6.4vw,92px);line-height:1.05;letter-spacing:.04em;text-transform:uppercase}
+  .drop span{display:block;font-family:var(--mono);font-style:normal;font-size:12px;letter-spacing:.2em;
+    text-transform:uppercase;color:var(--muted);margin-top:18px}
+  .toast{position:fixed;left:50%;top:70px;transform:translate(-50%,-12px);z-index:30;padding:9px 16px;border-radius:99px;
+    background:var(--ink);color:var(--bg);opacity:0;pointer-events:none;transition:.3s;font-size:11px;max-width:90vw}
+  .toast.on{opacity:1;transform:translate(-50%,0)}
+  #btnShow{position:fixed;right:18px;bottom:18px;z-index:6;display:none;padding:8px 13px;border:1px solid var(--line);
+    border-radius:99px;font-size:10.5px;text-transform:uppercase;letter-spacing:.12em;background:var(--panel)}
+  body.ui-off .bar,body.ui-off .dock{display:none}
+  body.ui-off #btnShow{display:block}
+  #err{position:fixed;left:16px;right:16px;bottom:16px;z-index:60;padding:12px 16px;border:1px solid var(--accent);
+    background:var(--bg);color:var(--ink);border-radius:6px;font-size:12px;white-space:pre-wrap;word-break:break-word}
+  #boot{position:fixed;inset:0;z-index:40;display:flex;align-items:center;justify-content:center;background:var(--bg);
+    font-family:var(--display);font-weight:300;font-size:20px;letter-spacing:.3em;text-transform:uppercase}
+  #fps{position:fixed;right:18px;bottom:60px;z-index:7;font-size:10.5px;color:var(--muted);display:none;text-align:right}
+  .fallback{position:fixed;inset:0;display:none;align-items:center;justify-content:center;z-index:50;
+    font-family:var(--serif);font-size:24px;text-align:center;padding:40px}
+  @media (max-width:1320px){ .keys{display:none} .acts{margin-left:auto} }
+  @media (max-width:900px){
+    .tag{display:none}
+    .bar{flex-wrap:wrap;gap:10px;padding:8px 14px}
+    .word{font-size:15px}
+    .acts button{padding:8px 11px}
+    .dock{gap:12px 22px;padding:12px 14px 14px}
+  }
+</style>
+</head>
+<body data-theme="dark">
+
+<canvas id="stage"></canvas>
+<div id="boot">Swarm is waking up …</div>
+<div id="fps"></div>
+
+<header class="bar" id="bar">
+  <div class="brand">
+    <svg class="mark" viewBox="0 0 30 30" aria-hidden="true">
+      <circle cx="6" cy="22" r="1.9"/><circle cx="12" cy="15" r="2.3"/><circle cx="19" cy="20" r="1.6"/>
+      <circle cx="25" cy="9" r="2.5"/><circle cx="16.5" cy="7" r="1.3"/><circle cx="8" cy="7.5" r="1.1"/><circle cx="25" cy="23.5" r="1.1"/>
+    </svg>
+    <span class="word">SWARM</span>
+    <span class="tag">images → motion</span>
+  </div>
+  <div class="keys" aria-label="Shortcuts">
+    <span><kbd>Drag</kbd>rotate</span><span><kbd>Wheel</kbd>zoom</span><span><kbd>Click</kbd>burst</span>
+    <span><kbd>1–4</kbd>effects</span><span><kbd>C</kbd>cam</span><span><kbd>R</kbd>shuffle</span><span><kbd>H</kbd>hide</span>
+  </div>
+  <div class="acts">
+    <button id="btnAuto" title="Auto-director: changes effect and style every few seconds (A)">Auto</button>
+    <button id="btnShuffle" title="Random combination (R)">Shuffle</button>
+    <button id="btnPng" title="Save the current frame as PNG">PNG</button>
+    <button id="btnRec" title="Record the animation as WebM">● Record</button>
+    <button id="btnHide" title="Hide controls (H)">Hide</button>
+    <a class="gh" href="https://github.com/bernhardbrugger/swarm" target="_blank" rel="noopener" title="Source code on GitHub">GitHub ↗</a>
+  </div>
+</header>
+
+<footer class="dock" id="dock">
+  <div class="grp">
+    <span class="lbl">Images · <span id="imgCount">0</span>/4</span>
+    <div class="thumbs" id="thumbs"></div>
+  </div>
+  <div class="grp">
+    <span class="lbl">Effect</span>
+    <div class="seg" data-key="effect">
+      <button data-v="gather">Gather</button><button data-v="drift">Drift</button>
+      <button data-v="splash">Splash</button><button data-v="depth">Depth</button>
+    </div>
+  </div>
+  <div class="grp">
+    <span class="lbl">Depth from <span id="depthStatus"></span></span>
+    <div class="seg" data-key="depthSrc">
+      <button data-v="bright">Brightness</button><button data-v="ai" title="Depth Anything V2 Small, runs locally in your browser (one-time download of about 27 MB)">AI model</button>
+    </div>
+  </div>
+  <div class="grp">
+    <span class="lbl">Draw</span>
+    <div class="seg" data-key="style">
+      <button data-v="dots">Dots</button><button data-v="trails">Trails</button>
+      <button data-v="marks">Marks</button><button data-v="links">Mesh</button><button data-v="scan">Scan</button>
+    </div>
+  </div>
+  <div class="grp">
+    <span class="lbl">Motion</span>
+    <div class="seg" data-key="move">
+      <button data-v="travel">Travel</button><button data-v="swarm">Swarm</button><button data-v="melt">Melt</button>
+    </div>
+  </div>
+  <div class="grp">
+    <span class="lbl">Background</span>
+    <div class="seg" data-key="bg"><button data-v="black">Black</button><button data-v="white">White</button></div>
+  </div>
+  <div class="grp">
+    <span class="lbl">Ink</span>
+    <div class="seg" data-key="color"><button data-v="mono">Grayscale</button><button data-v="color">Color</button></div>
+  </div>
+  <div class="sliders">
+    <label class="sl"><span class="lbl">Density <b id="o_count"></b></span>
+      <input type="range" data-key="count" min="2000" max="20000" step="500"></label>
+    <label class="sl"><span class="lbl">Size <b id="o_size"></b></span>
+      <input type="range" data-key="size" min="1" max="6" step="0.1"></label>
+    <label class="sl"><span class="lbl">Speed <b id="o_speed"></b></span>
+      <input type="range" data-key="speed" min="0.3" max="2.2" step="0.05"></label>
+  </div>
+  <div class="grp">
+    <span class="lbl">Tone</span>
+    <div class="sliders">
+      <label class="sl"><span class="lbl">Contrast <b id="o_contrast"></b></span>
+        <input type="range" data-key="contrast" min="0.4" max="2.8" step="0.05"></label>
+      <label class="sl"><span class="lbl">Brightness <b id="o_bright"></b></span>
+        <input type="range" data-key="bright" min="-0.5" max="0.5" step="0.02"></label>
+      <label class="sl"><span class="lbl">Levels <b id="o_tones"></b></span>
+        <input type="range" data-key="tones" min="0" max="8" step="1"></label>
+      <div class="seg" data-toggles>
+        <button data-t="invert" title="Swap light and dark">Invert</button>
+        <button data-t="stipple" title="Tone becomes dot density instead of dot brightness">Stipple</button>
+      </div>
+    </div>
+  </div>
+  <div class="grp">
+    <span class="lbl">3D view</span>
+    <div class="row">
+      <label class="sl" style="min-width:110px"><span class="lbl">Relief <b id="o_relief"></b></span>
+        <input type="range" data-key="relief" min="0" max="1.6" step="0.05"></label>
+      <div class="seg" data-toggles><button data-t="spin" title="Slow turntable rotation">Spin</button></div>
+      <button class="add" id="btnReset" title="Back to the front view (double-click the picture also works)">Reset view</button>
+    </div>
+  </div>
+  <div class="grp">
+    <span class="lbl">Sound</span>
+    <div class="row">
+      <div class="seg" data-key="sound"><button data-v="off">Off</button><button data-v="mic">Mic</button><button data-v="file">File</button></div>
+      <label class="sl" style="min-width:90px"><span class="lbl">React <b id="o_react"></b></span>
+        <input type="range" data-key="react" min="0" max="2" step="0.05"></label>
+    </div>
+  </div>
+  <div class="grp">
+    <span class="lbl">Text to particles</span>
+    <div class="row"><input type="text" id="textIn" maxlength="24" placeholder="Type a word…" autocomplete="off" spellcheck="false"><button class="add" id="textAdd">Add</button></div>
+  </div>
+</footer>
+
+<button id="btnShow">Controls</button>
+<div class="drop" id="drop"><div>Let go<span>up to four images</span></div></div>
+<div class="toast" id="toast"></div>
+<div class="fallback" id="fallback">This browser does not support WebGL – please use a current browser.</div>
+<input type="file" id="file" accept="image/*" multiple hidden>
+<input type="file" id="audioFile" accept="audio/*" hidden>
+
+<script>
+(() => {
+'use strict';
+const MAXP = 20000, MAXIMG = 4;
+const $ = s => document.querySelector(s);
+const canvas = $('#stage');
+const gl = canvas.getContext('webgl', {antialias:false, alpha:false, preserveDrawingBuffer:true});
+if (!gl) { $('#fallback').style.display = 'flex'; return; }
+
+/* ---------- State ---------- */
+const S = { effect:'gather', style:'dots', move:'swarm', bg:'black', color:'mono', depthSrc:'bright',
+  count:12000, size:3, speed:1, contrast:1, bright:0, tones:0, invert:false, stipple:false, react:1, auto:false,
+  relief:1, spin:false };
+const MOVE = { travel:0, swarm:1, melt:2 };
+const BG = { black:[10/255,10/255,11/255], white:[242/255,241/255,237/255] };
+const ACCENT = [229/255, 71/255, 42/255];
+
+/* ---------- Shaders ---------- */
+function compile(type, src){
+  const s = gl.createShader(type); gl.shaderSource(s, src); gl.compileShader(s);
+  if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(s));
+  return s;
+}
+function program(vs, fs){
+  const p = gl.createProgram();
+  gl.attachShader(p, compile(gl.VERTEX_SHADER, vs)); gl.attachShader(p, compile(gl.FRAGMENT_SHADER, fs));
+  gl.linkProgram(p);
+  if (!gl.getProgramParameter(p, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(p));
+  return p;
+}
+// All GL objects live in setupGL() so they can be rebuilt after the browser resets the graphics
+// (sleep/resume, GPU driver reset, long background pause).
+let prog, fadeProg, L, vbo, quad, glLost = false;
+function setupGL(){
+prog = program(`
+  attribute vec2 a_pos; attribute float a_size; attribute vec4 a_col;
+  uniform vec2 u_res; uniform float u_dpr; varying vec4 v_col;
+  void main(){
+    vec2 c = a_pos / u_res * 2.0 - 1.0;
+    gl_Position = vec4(c.x, -c.y, 0.0, 1.0);
+    gl_PointSize = max(a_size * u_dpr, 1.0);
+    v_col = a_col;
+  }`, `
+  precision mediump float; varying vec4 v_col; uniform float u_round;
+  void main(){
+    float a = v_col.a;
+    if (u_round > 0.5){ float r = length(gl_PointCoord - 0.5) * 2.0; a *= smoothstep(1.0, 0.55, r); }
+    gl_FragColor = vec4(v_col.rgb, a);
+  }`);
+fadeProg = program(`
+  attribute vec2 a_p; void main(){ gl_Position = vec4(a_p, 0.0, 1.0); }`, `
+  precision mediump float; uniform vec4 u_c; void main(){ gl_FragColor = u_c; }`);
+L = {
+  pos: gl.getAttribLocation(prog,'a_pos'), size: gl.getAttribLocation(prog,'a_size'), col: gl.getAttribLocation(prog,'a_col'),
+  res: gl.getUniformLocation(prog,'u_res'), dpr: gl.getUniformLocation(prog,'u_dpr'), round: gl.getUniformLocation(prog,'u_round'),
+  fp: gl.getAttribLocation(fadeProg,'a_p'), fc: gl.getUniformLocation(fadeProg,'u_c')
+};
+vbo = gl.createBuffer();
+quad = gl.createBuffer();
+gl.bindBuffer(gl.ARRAY_BUFFER, quad);
+gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1, 1,-1, -1,1, 1,1]), gl.STATIC_DRAW);
+gl.enable(gl.BLEND);
+}
+setupGL();
+canvas.addEventListener('webglcontextlost', e => { e.preventDefault(); glLost = true; });
+canvas.addEventListener('webglcontextrestored', () => {
+  try { setupGL(); glLost = false; needClear = true; gl.viewport(0, 0, canvas.width, canvas.height); toast('Graphics were reset by the browser – restored.'); }
+  catch (err) { console.error(err); }
+});
+
+/* ---------- Particles ---------- */
+const px = new Float32Array(MAXP), py = new Float32Array(MAXP), pz = new Float32Array(MAXP);
+const vx = new Float32Array(MAXP), vy = new Float32Array(MAXP), vz = new Float32Array(MAXP);
+const seed = new Float32Array(MAXP), seed2 = new Float32Array(MAXP);
+const sx = new Float32Array(MAXP), sy = new Float32Array(MAXP), sf = new Float32Array(MAXP);
+const cr = new Float32Array(MAXP), cg = new Float32Array(MAXP), cb = new Float32Array(MAXP), ca = new Float32Array(MAXP);
+const pv = new Float32Array(MAXP * 7);
+const lv = new Float32Array(MAXP * 28);
+for (let i = 0; i < MAXP; i++){ seed[i] = Math.random(); seed2[i] = Math.random(); }
+
+/* ---------- Image analysis ---------- */
+function boxBlur(src, w, h, r){
+  const tmp = new Float32Array(w*h), out = new Float32Array(w*h), d = 2*r + 1;
+  for (let y = 0; y < h; y++){
+    const row = y*w; let acc = 0;
+    for (let x = -r; x <= r; x++) acc += src[row + Math.min(w-1, Math.max(0, x))];
+    for (let x = 0; x < w; x++){
+      tmp[row+x] = acc/d;
+      acc += src[row + Math.min(w-1, x+r+1)] - src[row + Math.max(0, x-r)];
+    }
+  }
+  for (let x = 0; x < w; x++){
+    let acc = 0;
+    for (let y = -r; y <= r; y++) acc += tmp[Math.min(h-1, Math.max(0, y))*w + x];
+    for (let y = 0; y < h; y++){
+      out[y*w+x] = acc/d;
+      acc += tmp[Math.min(h-1, y+r+1)*w + x] - tmp[Math.max(0, y-r)*w + x];
+    }
+  }
+  return out;
+}
+
+function buildSamples(src, name, demo){
+  const sw = src.width || src.naturalWidth, sh = src.height || src.naturalHeight;
+  const k = 320 / Math.max(sw, sh);
+  const w = Math.max(8, Math.round(sw*k)), h = Math.max(8, Math.round(sh*k));
+  const c = document.createElement('canvas'); c.width = w; c.height = h;
+  const cx = c.getContext('2d', {willReadFrequently:true});
+  cx.drawImage(src, 0, 0, w, h);
+  const d = cx.getImageData(0, 0, w, h).data;
+  const N = w*h, lum = new Float32Array(N);
+  for (let i = 0; i < N; i++) lum[i] = (0.2126*d[i*4] + 0.7152*d[i*4+1] + 0.0722*d[i*4+2]) / 255;
+
+  // edges (Sobel) -> sampling weight + stroke direction
+  const ang = new Float32Array(N), cum = new Float64Array(N);
+  let total = 0;
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++){
+    const i = y*w + x; let gx = 0, gy = 0;
+    if (x > 0 && y > 0 && x < w-1 && y < h-1){
+      gx = -lum[i-w-1] - 2*lum[i-1] - lum[i+w-1] + lum[i-w+1] + 2*lum[i+1] + lum[i+w+1];
+      gy = -lum[i-w-1] - 2*lum[i-w] - lum[i-w+1] + lum[i+w-1] + 2*lum[i+w] + lum[i+w+1];
+    }
+    const mag = Math.sqrt(gx*gx + gy*gy);
+    const edge = Math.min(1, mag * 1.6);
+    ang[i] = mag > 0.05 ? Math.atan2(gy, gx) + Math.PI/2 : 0.8;
+    total += (0.28 + 2.2*edge) * (d[i*4+3] / 255);
+    cum[i] = total;
+  }
+
+  // pseudo depth from blurred brightness (the AI model can replace it later)
+  let bl = boxBlur(lum, w, h, Math.max(3, Math.round(w/55)));
+  bl = boxBlur(bl, w, h, Math.max(2, Math.round(w/80)));
+  const dep0 = new Float32Array(N); let mn = 1, mx = 0;
+  for (let i = 0; i < N; i++){ const v = 0.7*bl[i] + 0.3*lum[i]; dep0[i] = v; if (v < mn) mn = v; if (v > mx) mx = v; }
+  const span = Math.max(0.05, mx - mn);
+
+  const o = { name, demo, aspect: sw/sh, dw: 0, dh: 0,
+    u: new Float32Array(MAXP), v: new Float32Array(MAXP), d: new Float32Array(MAXP),
+    r: new Float32Array(MAXP), g: new Float32Array(MAXP), b: new Float32Array(MAXP),
+    l: new Float32Array(MAXP), ang: new Float32Array(MAXP) };
+  for (let j = 0; j < MAXP; j++){
+    const target = Math.random() * total;
+    let lo = 0, hi = N - 1;
+    while (lo < hi){ const mid = (lo + hi) >> 1; if (cum[mid] < target) lo = mid + 1; else hi = mid; }
+    const x = lo % w, y = (lo / w) | 0;
+    o.u[j] = (x + Math.random()) / w; o.v[j] = (y + Math.random()) / h;
+    o.d[j] = (dep0[lo] - mn) / span;
+    o.r[j] = d[lo*4] / 255; o.g[j] = d[lo*4+1] / 255; o.b[j] = d[lo*4+2] / 255;
+    o.l[j] = lum[lo]; o.ang[j] = ang[lo];
+  }
+  o.dB = o.d; o.dAI = null; o.src = src;
+  const tc = document.createElement('canvas'); tc.width = 72; tc.height = Math.max(20, Math.round(72 / o.aspect));
+  const tx = tc.getContext('2d'); tx.fillStyle = '#000'; tx.fillRect(0, 0, tc.width, tc.height);
+  tx.drawImage(src, 0, 0, tc.width, tc.height);
+  o.thumb = tc.toDataURL('image/jpeg', 0.75);
+  return o;
+}
+
+/* ---------- Demo shapes (drawn in code) ---------- */
+function demoCanvas(w, h){ const c = document.createElement('canvas'); c.width = w; c.height = h; const x = c.getContext('2d'); x.fillStyle = '#000'; x.fillRect(0, 0, w, h); return [c, x]; }
+const gray = v => { v = Math.round(Math.max(0, Math.min(1, v)) * 255); return `rgb(${v},${v},${v})`; };
+function demoSphere(){
+  const w = 960, h = 640, [c, x] = demoCanvas(w, h), cx = w/2, cy = h*.48, r = h*.36;
+  // soft ground shadow
+  let g = x.createRadialGradient(cx, cy + r*1.02, 4, cx, cy + r*1.02, r*1.1);
+  g.addColorStop(0, 'rgba(255,255,255,.34)'); g.addColorStop(1, 'rgba(255,255,255,0)');
+  x.save(); x.translate(0, cy + r*1.02); x.scale(1, .16); x.translate(0, -(cy + r*1.02)); x.fillStyle = g;
+  x.beginPath(); x.arc(cx, cy + r*1.02, r*1.1, 0, 7); x.fill(); x.restore();
+  g = x.createRadialGradient(cx - r*.38, cy - r*.42, r*.04, cx - r*.1, cy - r*.1, r*1.15);
+  g.addColorStop(0, '#fff'); g.addColorStop(.25, '#d9d9d9'); g.addColorStop(.6, '#6b6b6b'); g.addColorStop(.92, '#1a1a1a'); g.addColorStop(1, '#2a2a2a');
+  x.fillStyle = g; x.beginPath(); x.arc(cx, cy, r, 0, 7); x.fill();
+  return c;
+}
+function demoTriangle(){
+  const w = 960, h = 640, [c, x] = demoCanvas(w, h), cx = w/2, cy = h*.56, R = h*.5;
+  const tri = (s, shift) => {
+    x.beginPath();
+    for (let i = 0; i < 3; i++){ const a = -Math.PI/2 + i*2*Math.PI/3; const px_ = cx + Math.cos(a)*R*s, py_ = cy + shift + Math.sin(a)*R*s; i ? x.lineTo(px_, py_) : x.moveTo(px_, py_); }
+    x.closePath();
+  };
+  const n = 9;
+  for (let i = 0; i < n; i++){
+    const s = 1 - i*.105, v = i % 2 ? .12 + (i/n)*.5 : .96 - (i/n)*.78;
+    const g = x.createLinearGradient(cx - R*s, 0, cx + R*s, 0);
+    g.addColorStop(0, gray(v * 1.05)); g.addColorStop(.5, gray(v)); g.addColorStop(1, gray(v * .45));
+    x.fillStyle = g; tri(s, i*h*.012); x.fill();
+  }
+  return c;
+}
+function demoMandala(){
+  const w = 960, h = 640, [c, x] = demoCanvas(w, h), cx = w/2, cy = h/2, R = h*.47;
+  x.globalCompositeOperation = 'lighter';
+  const layers = [[8, 1.0, .46, .20], [12, .8, .4, .16], [16, .62, .34, .13], [20, .44, .3, .1], [24, .28, .26, .08]];
+  layers.forEach(([n, rad, len, wid], li) => {
+    for (let i = 0; i < n; i++){
+      x.save(); x.translate(cx, cy); x.rotate(i*2*Math.PI/n + li*.17);
+      const ry = R*len, rx = R*wid, oy = -R*rad*.62;
+      const g = x.createRadialGradient(0, oy, 0, 0, oy, ry);
+      g.addColorStop(0, `rgba(255,255,255,${.5 - li*.06})`); g.addColorStop(.7, `rgba(255,255,255,${.16})`); g.addColorStop(1, 'rgba(255,255,255,0)');
+      x.fillStyle = g; x.beginPath(); x.ellipse(0, oy, rx, ry, 0, 0, 7); x.fill();
+      x.strokeStyle = `rgba(255,255,255,${.5 - li*.05})`; x.lineWidth = 1.6; x.stroke();
+      x.restore();
+    }
+  });
+  for (let r = 1; r <= 4; r++){ x.strokeStyle = `rgba(255,255,255,${.5 - r*.08})`; x.lineWidth = 1.5; x.beginPath(); x.arc(cx, cy, R*(.1 + r*.23), 0, 7); x.stroke(); }
+  const g = x.createRadialGradient(cx, cy, 0, cx, cy, R*.16);
+  g.addColorStop(0, '#fff'); g.addColorStop(1, 'rgba(255,255,255,0)');
+  x.fillStyle = g; x.beginPath(); x.arc(cx, cy, R*.16, 0, 7); x.fill();
+  return c;
+}
+function demoSpiral(){
+  const w = 960, h = 640, [c, x] = demoCanvas(w, h), cx = w/2, cy = h/2, golden = Math.PI * (3 - Math.sqrt(5)), N = 900, R = h*.47;
+  for (let i = 1; i <= N; i++){
+    const f = i / N, r = Math.sqrt(f) * R, a = i * golden;
+    const dotR = 2 + f*13;
+    x.fillStyle = gray(.18 + .82 * Math.pow(f, .8));
+    x.beginPath(); x.arc(cx + Math.cos(a)*r, cy + Math.sin(a)*r, dotR, 0, 7); x.fill();
+  }
+  return c;
+}
+
+/* ---------- Image management ---------- */
+let imgs = [];
+let userSrc = [];   // {src, name}
+let buildToken = 0, lite = false;
+// If the very first image takes long to analyse, this browser is slow (no JIT, software graphics, heavy extensions):
+// switch to a light configuration right away instead of freezing.
+function goLite(){
+  if (lite) return; lite = true;
+  S.count = Math.min(S.count, 4000); dprCap = 1; resize(); reflect();
+  toast('Slow browser detected – running in light mode (fewer dots).');
+}
+function rebuildImages(){
+  const token = ++buildToken;
+  const finish = () => { renderThumbs(); updateLayout(); scatter(); t = 0; orderS = 0; needClear = true; applyDepth(); };
+  if (cam.on){ imgs = [cam.entry]; finish(); return; }
+  const list = userSrc.length
+    ? userSrc.map(e => ({ make: () => e.src, name: e.name, demo: false }))
+    : [{ make: demoSphere, name: 'Sphere', demo: true }, { make: demoTriangle, name: 'Triangle', demo: true },
+       { make: demoMandala, name: 'Mandala', demo: true }, { make: demoSpiral, name: 'Spiral', demo: true }];
+  // the first image appears immediately, the others are analysed one by one in the background
+  const t0 = performance.now();
+  imgs = [buildSamples(list[0].make(), list[0].name, list[0].demo)];
+  if (performance.now() - t0 > 450) goLite();
+  finish();
+  let k = 1;
+  const next = () => {
+    if (token !== buildToken || k >= list.length || (lite && list[k].demo && k >= 2)) return;
+    const e = list[k++];
+    imgs.push(buildSamples(e.make(), e.name, e.demo));
+    updateLayout(); renderThumbs(); applyDepth();
+    setTimeout(next, 40);
+  };
+  setTimeout(next, 80);
+}
+
+/* ---------- AI depth (Depth Anything V2 Small via Transformers.js, local in the browser) ---------- */
+let estimator = null, estimatorP = null, depthRun = 0, depthBusy = false;
+const setStatus = txt => { $('#depthStatus').textContent = txt ? '· ' + txt : ''; };
+function getEstimator(){
+  if (estimator) return Promise.resolve(estimator);
+  if (!estimatorP) estimatorP = (async () => {
+    setStatus('loading model …');
+    const tf = await import('https://cdn.jsdelivr.net/npm/@huggingface/transformers@4.3.2');
+    try { tf.env.backends.onnx.wasm.proxy = true; } catch (e) {}   // inference in a worker keeps the UI responsive
+    estimator = await tf.pipeline('depth-estimation', 'onnx-community/depth-anything-v2-small', {
+      dtype: 'q8', device: 'wasm',
+      progress_callback: p => {
+        if (p.status === 'progress' && p.file && p.file.endsWith('.onnx') && isFinite(p.progress)) setStatus('model ' + Math.round(p.progress) + ' %');
+      }
+    });
+    return estimator;
+  })().catch(e => { estimatorP = null; throw e; });
+  return estimatorP;
+}
+async function depthFor(im){
+  if (im.dAI) return im.dAI;
+  const est = await getEstimator();
+  const sw = im.src.width || im.src.naturalWidth, sh = im.src.height || im.src.naturalHeight, k = Math.min(1, 640 / Math.max(sw, sh));
+  const c = document.createElement('canvas'); c.width = Math.round(sw*k); c.height = Math.round(sh*k);
+  const cx = c.getContext('2d'); cx.fillStyle = '#fff'; cx.fillRect(0, 0, c.width, c.height); cx.drawImage(im.src, 0, 0, c.width, c.height);
+  const blob = await new Promise(r => c.toBlob(r, 'image/jpeg', .92)), url = URL.createObjectURL(blob);
+  let out; try { out = await est(url); } finally { URL.revokeObjectURL(url); }
+  const m = Array.isArray(out) ? out[0].depth : out.depth, { data, width, height } = m, ch = m.channels || 1;
+  const hist = new Uint32Array(256); for (let i = 0; i < width*height; i++) hist[data[i*ch]]++;
+  const total = width*height; let acc = 0, lo = 0, hi = 255;
+  for (let v = 0; v < 256; v++){ acc += hist[v]; if (acc >= total*.02){ lo = v; break; } }
+  acc = 0; for (let v = 255; v >= 0; v--){ acc += hist[v]; if (acc >= total*.02){ hi = v; break; } }
+  const span = Math.max(8, hi - lo), arr = new Float32Array(MAXP);
+  for (let j = 0; j < MAXP; j++){
+    const ix = Math.min(width-1, (im.u[j]*width) | 0), iy = Math.min(height-1, (im.v[j]*height) | 0);
+    arr[j] = Math.min(1, Math.max(0, (data[(iy*width + ix)*ch] - lo) / span));
+  }
+  return im.dAI = arr;
+}
+async function applyDepth(){
+  const run = ++depthRun;
+  if (S.depthSrc !== 'ai'){ imgs.forEach(im => im.d = im.dB); setStatus(''); depthBusy = false; return; }
+  try {
+    depthBusy = true;
+    for (let i = 0; i < imgs.length; i++){
+      const im = imgs[i];
+      if (im.live){ im.d = im.dB; continue; }          // live camera: depth comes from brightness
+      if (!im.dAI){
+        setStatus(estimator ? `image ${i+1}/${imgs.length} …` : 'loading model …');
+        await new Promise(r => setTimeout(r, 30));
+        await depthFor(im);
+      }
+      if (run !== depthRun) return;
+      im.d = im.dAI;
+    }
+    setStatus('AI active'); depthBusy = false;
+  } catch (e){
+    console.error(e); depthBusy = false; if (run !== depthRun) return;
+    toast('Depth model unavailable (network?) – using brightness instead.');
+    S.depthSrc = 'bright'; imgs.forEach(im => im.d = im.dB); setStatus(''); reflect();
+  }
+}
+
+function renderThumbs(){
+  const box = $('#thumbs'); box.innerHTML = '';
+  if (cam.on){
+    const d = document.createElement('div'); d.className = 'live'; d.textContent = '● LIVE'; box.appendChild(d);
+  } else imgs.forEach((im, i) => {
+    const d = document.createElement('div'); d.className = 'th'; d.title = im.name;
+    d.innerHTML = `<img alt="${im.name.replace(/[<>&"]/g, '')}" src="${im.thumb}">`;
+    if (!im.demo){
+      const b = document.createElement('button'); b.textContent = '×'; b.title = 'Remove';
+      b.onclick = () => { userSrc.splice(i, 1); rebuildImages(); };
+      d.appendChild(b);
+    }
+    box.appendChild(d);
+  });
+  const add = document.createElement('button'); add.className = 'add'; add.textContent = '+ Image';
+  add.onclick = () => $('#file').click(); box.appendChild(add);
+  const cb = document.createElement('button'); cb.className = 'add' + (cam.on ? ' on' : ''); cb.id = 'btnCam';
+  cb.textContent = cam.on ? '■ Webcam' : '● Webcam'; cb.title = 'Live camera as the source (C). Processed locally, nothing is uploaded.';
+  cb.onclick = () => cam.on ? camStop() : camStart(); box.appendChild(cb);
+  $('#imgCount').textContent = cam.on ? 'live' : userSrc.length;
+}
+
+/* ---------- Live webcam: particles keep re-targeting edges and motion ---------- */
+const cam = { on:false, video:null, stream:null, ctx:null, entry:null, cw:0, ch:0, lum:null, prev:null, cum:null, dep:null, ang:null, frameNo:0, cursor:0 };
+function newCamEntry(aspect){
+  const f = () => new Float32Array(MAXP);
+  const e = { name:'Webcam', demo:true, live:true, aspect, dw:0, dh:0, u:f(), v:f(), d:f(), r:f(), g:f(), b:f(), l:f(), ang:f(), dAI:null, src:null, thumb:'' };
+  e.dB = e.d; return e;
+}
+async function camStart(){
+  if (cam.on) return;
+  try {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) throw new Error('no camera API');
+    const stream = await navigator.mediaDevices.getUserMedia({ video: { width:{ ideal:640 }, height:{ ideal:480 }, facingMode:'user' }, audio:false });
+    const v = document.createElement('video'); v.playsInline = true; v.muted = true; v.srcObject = stream;
+    await v.play();
+    if (!v.videoWidth) await new Promise(r => v.addEventListener('loadedmetadata', r, { once:true }));
+    const ar = v.videoWidth / v.videoHeight, cw = 192, ch = Math.max(8, Math.round(cw / ar));
+    const c = document.createElement('canvas'); c.width = cw; c.height = ch;
+    Object.assign(cam, { video:v, stream, ctx:c.getContext('2d', { willReadFrequently:true }), cw, ch, entry:newCamEntry(ar),
+      lum:new Float32Array(cw*ch), prev:new Float32Array(cw*ch), cum:new Float64Array(cw*ch),
+      dep:new Float32Array(cw*ch), ang:new Float32Array(cw*ch), frameNo:0, cursor:0 });
+    cam.fresh = true; cam.hasRVFC = typeof v.requestVideoFrameCallback === 'function';
+    if (cam.hasRVFC){ const cb = () => { cam.fresh = true; if (cam.video === v) v.requestVideoFrameCallback(cb); }; v.requestVideoFrameCallback(cb); }
+    camTick(true);
+    cam.on = true; rebuildImages(); reflect();
+    toast('Webcam on – step into the frame. Everything stays on your computer.');
+  } catch (e){ console.error(e); camStop(false); toast('Webcam not available (permission or no camera).'); }
+}
+function camStop(rebuild = true){
+  const was = cam.on;
+  if (cam.stream) cam.stream.getTracks().forEach(tr => tr.stop());
+  cam.stream = null; cam.video = null; cam.on = false; cam.entry = null;
+  if (was && rebuild) rebuildImages();
+}
+function camTick(init){
+  const v = cam.video; if (!v || v.readyState < 2) return;
+  const nowMs = performance.now();
+  // only work when the camera delivered a new picture (safety net: never wait longer than 100 ms)
+  if (!init && cam.hasRVFC && !cam.fresh && nowMs - cam.lastTick < 100) return;
+  cam.fresh = false; cam.lastTick = nowMs;
+  const { cw, ch, ctx, lum, prev, cum, ang, dep, entry:e } = cam, N = cw*ch, n = init ? MAXP : S.count;
+  ctx.save(); ctx.translate(cw, 0); ctx.scale(-1, 1); ctx.drawImage(v, 0, 0, cw, ch); ctx.restore();   // mirrored
+  const d = ctx.getImageData(0, 0, cw, ch).data;
+  for (let i = 0; i < N; i++) lum[i] = (.2126*d[i*4] + .7152*d[i*4+1] + .0722*d[i*4+2]) / 255;
+  if (init) prev.set(lum);
+  let total = 0;
+  for (let y = 0; y < ch; y++) for (let x = 0; x < cw; x++){
+    const i = y*cw + x; let gx = 0, gy = 0;
+    if (x > 0 && y > 0 && x < cw-1 && y < ch-1){
+      gx = -lum[i-cw-1] - 2*lum[i-1] - lum[i+cw-1] + lum[i-cw+1] + 2*lum[i+1] + lum[i+cw+1];
+      gy = -lum[i-cw-1] - 2*lum[i-cw] - lum[i-cw+1] + lum[i+cw-1] + 2*lum[i+cw] + lum[i+cw+1];
+    }
+    const mag = Math.sqrt(gx*gx + gy*gy), edge = Math.min(1, mag * 1.6), mot = Math.max(0, Math.abs(lum[i] - prev[i]) - .06);
+    ang[i] = mag > .05 ? Math.atan2(gy, gx) + Math.PI/2 : .8;
+    total += .25 + 2.2*edge + 6*mot;          // more particles on edges and on moving parts
+    cum[i] = total;
+  }
+  prev.set(lum);
+  if (init || cam.frameNo % 3 === 0){          // pseudo depth from blurred brightness
+    const bl = boxBlur(lum, cw, ch, Math.max(2, Math.round(cw/40)));
+    let mn = 1, mx = 0; for (let i = 0; i < N; i++){ if (bl[i] < mn) mn = bl[i]; if (bl[i] > mx) mx = bl[i]; }
+    const span = Math.max(.05, mx - mn); for (let i = 0; i < N; i++) dep[i] = (bl[i] - mn) / span;
+  }
+  cam.frameNo++;
+  const mean = total / N;
+  const assign = j => {
+    const tg = Math.random() * total; let lo = 0, hi = N - 1;
+    while (lo < hi){ const mid = (lo + hi) >> 1; if (cum[mid] < tg) lo = mid + 1; else hi = mid; }
+    e.u[j] = ((lo % cw) + Math.random()) / cw; e.v[j] = (((lo / cw) | 0) + Math.random()) / ch;
+  };
+  if (init){ for (let j = 0; j < MAXP; j++) assign(j); }
+  else {                                        // importance resampling: particles on dull pixels move to better ones
+    const chunk = Math.ceil(n / 8);
+    for (let k = 0; k < chunk; k++){
+      const j = (cam.cursor + k) % n, idx = Math.min(ch-1, (e.v[j]*ch) | 0)*cw + Math.min(cw-1, (e.u[j]*cw) | 0);
+      const w = cum[idx] - (idx ? cum[idx-1] : 0);
+      if (Math.random() > Math.min(1, w / mean * .8)) assign(j);
+    }
+    cam.cursor = (cam.cursor + chunk) % Math.max(1, n);
+  }
+  const kk = init ? 1 : .5;
+  for (let j = 0; j < n; j++){
+    const idx = Math.min(ch-1, (e.v[j]*ch) | 0)*cw + Math.min(cw-1, (e.u[j]*cw) | 0), pi = idx*4;
+    e.r[j] += (d[pi] / 255 - e.r[j]) * kk; e.g[j] += (d[pi+1] / 255 - e.g[j]) * kk; e.b[j] += (d[pi+2] / 255 - e.b[j]) * kk;
+    e.l[j] += (lum[idx] - e.l[j]) * kk; e.ang[j] = ang[idx]; e.d[j] = dep[idx];
+  }
+}
+async function addFiles(files, replace){
+  const arr = [...files].filter(f => f.type.startsWith('image/'));
+  if (!arr.length) return toast('Those were not images.');
+  camStop(false);
+  if (replace) userSrc = [];
+  let skipped = 0;
+  for (const f of arr){
+    if (userSrc.length >= MAXIMG){ skipped++; continue; }
+    try { userSrc.push({ src: await createImageBitmap(f), name: f.name }); } catch (e) { toast('Could not read ' + f.name + '.'); }
+  }
+  if (skipped) toast('Maximum 4 images – ' + skipped + ' skipped.');
+  rebuildImages();
+}
+async function addText(){
+  const input = $('#textIn'), txt = input.value.trim();
+  if (!txt) return;
+  if (userSrc.length >= MAXIMG) return toast('Maximum 4 images – remove one first.');
+  camStop(false);
+  try { await document.fonts.load('600 200px Fraunces'); } catch (e) {}
+  const c = document.createElement('canvas'); c.width = 1200; c.height = 420;
+  const x = c.getContext('2d'); x.fillStyle = '#000'; x.fillRect(0, 0, c.width, c.height);
+  let size = 300; const fam = "'Fraunces', Georgia, serif";
+  for (; size > 40; size -= 6){ x.font = `600 ${size}px ${fam}`; if (x.measureText(txt).width < c.width * .9) break; }
+  x.fillStyle = '#fff'; x.textAlign = 'center'; x.textBaseline = 'middle'; x.fillText(txt, c.width/2, c.height/2 + size*.04);
+  userSrc.push({ src: c, name: txt }); input.value = ''; rebuildImages();
+}
+
+/* ---------- Layout ---------- */
+let W = 0, H = 0, dpr = 1, dprCap = 1.5, needClear = true;
+const layout = { cx:0, cy:0, aw:0, ah:0, sc:1 };
+function updateLayout(){
+  const off = document.body.classList.contains('ui-off');
+  const top = off ? 0 : $('#bar').offsetHeight, bottom = off ? 0 : $('#dock').offsetHeight;
+  layout.aw = W * 0.9; layout.ah = Math.max(80, (H - top - bottom) * 0.86);
+  layout.cx = W/2; layout.cy = top + (H - top - bottom)/2;
+  layout.sc = Math.min(layout.aw, layout.ah) / 700;
+  const box = layout.aw / layout.ah;
+  imgs.forEach(im => { im.dw = im.aspect > box ? layout.aw : layout.ah * im.aspect; im.dh = im.dw / im.aspect; });
+}
+function resize(){
+  dpr = Math.min(window.devicePixelRatio || 1, dprCap); W = innerWidth; H = innerHeight;
+  canvas.width = Math.round(W*dpr); canvas.height = Math.round(H*dpr);
+  canvas.style.width = W + 'px'; canvas.style.height = H + 'px';
+  gl.viewport(0, 0, canvas.width, canvas.height);
+  updateLayout(); needClear = true;
+}
+function scatter(from = 0, to = MAXP){
+  for (let i = from; i < to; i++){
+    px[i] = (Math.random() - .5) * W * 1.1; py[i] = (Math.random() - .5) * H * 1.0; pz[i] = 0;
+    vx[i] = vy[i] = vz[i] = 0;
+  }
+}
+
+/* ---------- Sound (microphone or audio file) ---------- */
+const audio = { mode:'off', ctx:null, an:null, data:null, stream:null, el:null, srcNode:null, bass:0, mid:0, avg:0, lastBeat:0 };
+function audioEnsure(){
+  if (!audio.ctx){
+    audio.ctx = new (window.AudioContext || window.webkitAudioContext)();
+    audio.an = audio.ctx.createAnalyser(); audio.an.fftSize = 1024; audio.an.smoothingTimeConstant = .55;
+    audio.data = new Uint8Array(audio.an.frequencyBinCount);
+  }
+  if (audio.ctx.state === 'suspended') audio.ctx.resume();
+}
+function audioStop(){
+  if (audio.stream){ audio.stream.getTracks().forEach(tr => tr.stop()); audio.stream = null; }
+  if (audio.el){ audio.el.pause(); audio.el = null; }
+  try { audio.srcNode && audio.srcNode.disconnect(); } catch (e) {}
+  try { audio.an && audio.an.disconnect(); } catch (e) {}
+  audio.srcNode = null; audio.mode = 'off'; reflect();
+}
+async function audioMic(){
+  audioStop();
+  try {
+    audioEnsure();
+    audio.stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    audio.srcNode = audio.ctx.createMediaStreamSource(audio.stream); audio.srcNode.connect(audio.an);
+    audio.mode = 'mic'; toast('Microphone on – make some noise.');
+  } catch (e){ audioStop(); toast('Microphone not available.'); }
+  reflect();
+}
+async function audioFile(file){
+  audioStop();
+  try {
+    audioEnsure();
+    const el = new Audio(); el.src = URL.createObjectURL(file); el.loop = true; audio.el = el;
+    audio.srcNode = audio.ctx.createMediaElementSource(el); audio.srcNode.connect(audio.an); audio.an.connect(audio.ctx.destination);
+    await el.play(); audio.mode = 'file';
+  } catch (e){ audioStop(); toast('Could not play this file.'); }
+  reflect();
+}
+function audioTick(now){
+  if (audio.mode === 'off'){ audio.bass *= .9; audio.mid *= .9; return; }
+  const d = audio.data; audio.an.getByteFrequencyData(d);
+  let b = 0, m = 0;
+  for (let i = 1; i <= 5; i++) b += d[i];
+  for (let i = 6; i <= 60; i++) m += d[i];
+  b /= 5*255; m /= 55*255;
+  audio.bass += (b - audio.bass) * (b > audio.bass ? .7 : .15);
+  audio.mid += (m - audio.mid) * (m > audio.mid ? .5 : .12);
+  audio.avg += (b - audio.avg) * .02;
+  if (S.react > 0 && b > audio.avg*1.3 + .06 && now - audio.lastBeat > 240){
+    audio.lastBeat = now;
+    addBurst((Math.random() - .5) * layout.aw * .5, (Math.random() - .5) * layout.ah * .5, S.react * Math.min(1, b*1.5) * .8);
+  }
+}
+
+/* ---------- Simulation ---------- */
+let t = 0, orderS = 0, camAmt = 0, camYaw = 0, camPitch = 0, lastA = 0, nextBurst = 4, last = performance.now();
+// Orbit camera controlled by the user: drag = rotate, wheel = zoom, double-click = reset
+const orb = { yaw:0, pitch:0, vyaw:0, vpitch:0, zoom:1, dragging:false, moved:false, resetting:false, lastX:0, lastY:0, lastT:0, sx:0, sy:0 };
+function orbReset(){
+  orb.yaw = ((orb.yaw + Math.PI) % (2*Math.PI) + 2*Math.PI) % (2*Math.PI) - Math.PI;   // shortest way back
+  orb.vyaw = orb.vpitch = 0; orb.resetting = true;
+}
+const ptr = { x:0, y:0, nx:0, ny:0, active:false };
+const bursts = [];
+const sstep = (a, b, x) => { x = Math.min(1, Math.max(0, (x - a) / (b - a))); return x*x*(3 - 2*x); };
+const flowAng = (x, y, tt) => Math.sin(x*.0042 + tt*.31) * Math.cos(y*.0051 - tt*.27) * 3.2 + Math.sin((x - y)*.0027 + tt*.19) * 2.4;
+function addBurst(x, y, s){ bursts.push({ x, y, s }); }
+const GX = 72, GY = 48, GW = GX + 1;
+const offX = new Float32Array(GW*(GY+1)), offY = new Float32Array(GW*(GY+1));
+const swX = new Float32Array(GW*(GY+1)), swY = new Float32Array(GW*(GY+1));
+function fillFlow(ox, oy, tt, ex, ey){
+  for (let gy = 0; gy <= GY; gy++){
+    const Y = (gy/GY*2 - 1)*ey;
+    for (let gx = 0; gx <= GX; gx++){
+      const an = flowAng((gx/GX*2 - 1)*ex, Y, tt), k = gy*GW + gx; ox[k] = Math.cos(an); oy[k] = Math.sin(an);
+    }
+  }
+}
+
+function update(dt){
+  const n = S.count, ni = imgs.length, { aw, ah, sc } = layout, mn = Math.min(aw, ah);
+  const cyc = S.effect === 'gather' ? 9 : 8, p = t / cyc, fl = Math.floor(p), fr = p - fl;
+  const a = ni > 1 ? fl % ni : 0, b = (a + 1) % ni;
+  const mx = ni > 1 ? sstep(S.effect === 'gather' ? .93 : .78, 1, fr) : 0;
+  let ot;
+  switch (S.effect){
+    case 'gather': ot = sstep(.12, .6, .5 - .5*Math.cos(p * 2*Math.PI)); break;
+    case 'drift': ot = .82; break;
+    default: ot = 1;
+  }
+  orderS += (ot - orderS) * Math.min(1, dt*5);
+  // the Depth effect adds a gentle automatic sway on top of the user's own orbit
+  camAmt += ((S.effect === 'depth' ? 1 : 0) - camAmt) * Math.min(1, dt*2.5);
+  camYaw += (Math.sin(t*.45)*.28 * camAmt - camYaw) * Math.min(1, dt*3);
+  camPitch += (Math.sin(t*.31 + 1)*.12 * camAmt - camPitch) * Math.min(1, dt*3);
+  if (!orb.dragging){
+    if (orb.resetting){
+      const k = Math.min(1, dt*5);
+      orb.yaw -= orb.yaw*k; orb.pitch -= orb.pitch*k; orb.zoom += (1 - orb.zoom)*k;
+      if (Math.abs(orb.yaw) + Math.abs(orb.pitch) + Math.abs(orb.zoom - 1) < .004){ orb.yaw = orb.pitch = 0; orb.zoom = 1; orb.resetting = false; }
+    } else {
+      orb.yaw += (orb.vyaw + (S.spin ? .35 : 0)) * dt;
+      orb.pitch = Math.max(-1.45, Math.min(1.45, orb.pitch + orb.vpitch * dt));
+      const fr = 1 / (1 + 3.5*dt); orb.vyaw *= fr; orb.vpitch *= fr;      // inertia after a drag
+    }
+  }
+
+  if (a !== lastA){ if (S.effect === 'splash') addBurst(0, 0, 1); lastA = a; }
+  if (S.effect === 'splash' && t >= nextBurst){
+    addBurst((Math.random() - .5) * aw * .5, (Math.random() - .5) * ah * .5, .9); nextBurst = t + 3.2 + Math.random()*2.2;
+  }
+  for (const bu of bursts){
+    const R = .38 * mn, str = bu.s * 1500 * sc;
+    for (let i = 0; i < n; i++){
+      const dx = px[i] - bu.x, dy = py[i] - bu.y, d = Math.sqrt(dx*dx + dy*dy) + 8;
+      const f = str * Math.exp(-d / R) * (.35 + seed[i]*.9);
+      vx[i] += dx/d*f; vy[i] += dy/d*f; vz[i] += (seed2[i] - .5) * f * .6;
+    }
+  }
+  bursts.length = 0;
+
+  const A = imgs[a], B = imgs[b], im = 1 - mx, move = MOVE[S.move];
+  const audioOn = audio.mode !== 'off';
+  const flowAmp = { gather:.008, drift:.05, splash:.006, depth:.012 }[S.effect] * mn * (audioOn ? 1 + S.react * 3 * audio.mid : 1);
+  const zscale = .5 * mn * S.relief;       // depth relief is always on; the slider sets how strong
+  const viewFlat = camAmt < .4 && !orb.dragging && Math.abs(orb.yaw) + Math.abs(orb.pitch) < .12 && Math.abs(orb.zoom - 1) < .05;
+  const repel = ptr.active && viewFlat, R = .13 * mn;
+  // flow fields are evaluated on a coarse grid once per frame instead of per particle (much cheaper)
+  const ex = W*.7, ey = H*.7;
+  fillFlow(offX, offY, t, ex, ey);
+  const needSw = move === 1 && orderS < .999;
+  if (needSw) fillFlow(swX, swY, t*1.5, ex, ey);
+  const Au = A.u, Av = A.v, Ad = A.d, Bu = B.u, Bv = B.v, Bd = B.d;
+  const Adw = A.dw*im, Adh = A.dh*im, Bdw = B.dw*mx, Bdh = B.dh*mx, Adz = zscale*im, Bdz = zscale*mx, zoff = .5*zscale;
+  for (let i = 0; i < n; i++){
+    const sd = seed[i], s2 = seed2[i];
+    let tx = (Au[i] - .5)*Adw + (Bu[i] - .5)*Bdw;
+    let ty = (Av[i] - .5)*Adh + (Bv[i] - .5)*Bdh;
+    const tz = Ad[i]*Adz + Bd[i]*Bdz - zoff;
+    {
+      let gx = (tx/ex*.5 + .5)*GX; gx = gx < 0 ? 0 : gx > GX - .001 ? GX - .001 : gx;
+      let gy = (ty/ey*.5 + .5)*GY; gy = gy < 0 ? 0 : gy > GY - .001 ? GY - .001 : gy;
+      const ix = gx | 0, iy = gy | 0, fx = gx - ix, fy = gy - iy, k0 = iy*GW + ix, k1 = k0 + GW;
+      const c = (1 - fy)*((1 - fx)*offX[k0] + fx*offX[k0+1]) + fy*((1 - fx)*offX[k1] + fx*offX[k1+1]);
+      const s = (1 - fy)*((1 - fx)*offY[k0] + fx*offY[k0+1]) + fy*((1 - fx)*offY[k1] + fx*offY[k1+1]);
+      tx += c * flowAmp; ty += s * flowAmp;
+    }
+
+    let o = (orderS - .28*sd) / .72; o = o < 0 ? 0 : o > 1 ? 1 : o;
+    const k = 58 * (.7 + .6*s2) * o*o;
+    let ax = (tx - px[i]) * k, ay = (ty - py[i]) * k, az = (tz - pz[i]) * k;
+    const dis = 1 - o;
+    if (dis > .001){
+      let dvx, dvy;
+      const X = px[i], Y = py[i];
+      if (move === 0){
+        const Lg = Math.sqrt(X*X + Y*Y) + 1, vv = 240*sc*(.45 + sd);
+        dvx = X/Lg*vv - Y/Lg*vv*.2; dvy = Y/Lg*vv + X/Lg*vv*.2;
+      } else if (move === 1){
+        let gi = Math.round((X/ex*.5 + .5)*GX), gj = Math.round((Y/ey*.5 + .5)*GY);
+        gi = gi < 0 ? 0 : gi > GX ? GX : gi; gj = gj < 0 ? 0 : gj > GY ? GY : gj;
+        const kk = gj*GW + gi, vv = 150*sc*(.4 + sd);
+        dvx = swX[kk]*vv - Y*.12; dvy = swY[kk]*vv + X*.12;
+      } else {
+        dvx = Math.sin(sd*37 + t*2) * 30*sc; dvy = 300*sc*(.25 + sd*1.3);
+      }
+      const g = 3 * dis;
+      ax += (dvx - vx[i]) * g; ay += (dvy - vy[i]) * g; az += -vz[i] * g;
+    }
+    if (repel){
+      const dx = px[i] - ptr.x, dy = py[i] - ptr.y, d2 = dx*dx + dy*dy;
+      if (d2 < R*R){ const d = Math.sqrt(d2) + .5, f = (1 - d/R); ax += dx/d * f*f * 2600*sc; ay += dy/d * f*f * 2600*sc; }
+    }
+    vx[i] += ax*dt; vy[i] += ay*dt; vz[i] += az*dt;
+    const damp = 1 / (1 + (.8 + 8.5*o) * dt);
+    vx[i] *= damp; vy[i] *= damp; vz[i] *= damp;
+    px[i] += vx[i]*dt; py[i] += vy[i]*dt; pz[i] += vz[i]*dt;
+  }
+  return { a, b, mx };
+}
+
+/* ---------- Rendering ---------- */
+function bindAttribs(){
+  gl.bindBuffer(gl.ARRAY_BUFFER, vbo);
+  gl.enableVertexAttribArray(L.pos); gl.vertexAttribPointer(L.pos, 2, gl.FLOAT, false, 28, 0);
+  gl.enableVertexAttribArray(L.size); gl.vertexAttribPointer(L.size, 1, gl.FLOAT, false, 28, 8);
+  gl.enableVertexAttribArray(L.col); gl.vertexAttribPointer(L.col, 4, gl.FLOAT, false, 28, 12);
+}
+function drawBuf(arr, verts, mode, round){
+  if (!verts) return;
+  gl.uniform1f(L.round, round);
+  gl.bufferData(gl.ARRAY_BUFFER, arr.subarray(0, verts*7), gl.DYNAMIC_DRAW);
+  gl.drawArrays(mode, 0, verts);
+}
+let gridHeads = new Int32Array(1), gridNext = new Int32Array(4000);
+
+function render(f){
+  if (glLost) return;
+  const n = S.count, { a, b, mx } = f, A = imgs[a], B = imgs[b], im = 1 - mx;
+  const black = S.bg === 'black', mono = S.color === 'mono', style = S.style;
+  const bgc = BG[S.bg], { cx, cy, aw, sc } = layout;
+  const yawF = camYaw + orb.yaw, pitchF = camPitch + orb.pitch, zm = orb.zoom;
+  const cyw = Math.cos(yawF), syw = Math.sin(yawF), cp = Math.cos(pitchF), sp = Math.sin(pitchF);
+  const F = 1.8 * Math.max(aw, layout.ah);
+  const scanOn = style === 'scan', stip = S.stipple;
+  const scanX = cx + (((t*.17) % 1.3) - .15)*aw - aw/2, bandW = aw*.08;
+  const ct = S.contrast, br = S.bright, tn = S.tones | 0, inv = S.invert;
+  const adj = c => {
+    c = (c - .5)*ct + .5 + br; c = c < 0 ? 0 : c > 1 ? 1 : c;
+    if (tn > 1){ const q = Math.min(tn - 1, Math.floor(c * tn)); c = q / (tn - 1); }
+    return inv ? 1 - c : c;
+  };
+  // "vis" is the amount of ink the picture content asks for (bright content = more ink).
+  // Black background: ink is light. White background: the same picture, ink is dark (a true mirror image).
+  const audioOn = audio.mode !== 'off', pulse = audioOn ? 1 + S.react * 1.3 * audio.bass : 1;
+
+  for (let i = 0; i < n; i++){
+    let r, g, bl, vis;
+    if (mono){
+      vis = adj(A.l[i]*im + B.l[i]*mx);
+      r = g = bl = black ? vis : 1 - vis;
+    } else {
+      r = adj(A.r[i]*im + B.r[i]*mx); g = adj(A.g[i]*im + B.g[i]*mx); bl = adj(A.b[i]*im + B.b[i]*mx);
+      vis = .2126*r + .7152*g + .0722*bl;
+    }
+    let al = .9 * Math.min(1, vis * 10);          // nearly invisible ink fades out instead of speckling the background
+    if (stip){
+      al = Math.min(1, Math.max(0, (vis - seed[i]) * 10 + .5)) * .95;
+      if (mono){ r = g = bl = black ? 1 : 0; }
+    }
+    const X = px[i], Y = py[i], Z = pz[i];
+    const x1 = X*cyw + Z*syw, z1 = -X*syw + Z*cyw, y1 = Y*cp - z1*sp, z2 = Y*sp + z1*cp;
+    const fp = F / (F - z2) * zm, qx = cx + x1*fp, qy = cy + y1*fp;
+    sx[i] = qx; sy[i] = qy; sf[i] = fp;
+    if (scanOn){
+      const dd = qx - scanX, band = Math.exp(-(dd*dd)/(bandW*bandW)), rem = dd > 0 ? Math.exp(-dd/(aw*.35)) : 0;
+      al *= .14 + .86*Math.min(1, band + .4*rem);
+    }
+    cr[i] = r; cg[i] = g; cb[i] = bl; ca[i] = al;
+  }
+
+  gl.disable(gl.DEPTH_TEST);
+  if (style === 'trails' && !needClear){
+    gl.useProgram(fadeProg); gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+    gl.bindBuffer(gl.ARRAY_BUFFER, quad); gl.enableVertexAttribArray(L.fp); gl.vertexAttribPointer(L.fp, 2, gl.FLOAT, false, 0, 0);
+    gl.uniform4f(L.fc, bgc[0], bgc[1], bgc[2], .09);
+    gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+  } else {
+    gl.clearColor(bgc[0], bgc[1], bgc[2], 1); gl.clear(gl.COLOR_BUFFER_BIT); needClear = false;
+  }
+  gl.useProgram(prog); bindAttribs();
+  gl.uniform2f(L.res, W, H); gl.uniform1f(L.dpr, dpr);
+  gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+
+  const sz = S.size * pulse;
+  let lc = 0;
+  const pushLine = (x1, y1, x2, y2, r, g, bl, al) => {
+    let o = lc*7;
+    lv[o] = x1; lv[o+1] = y1; lv[o+2] = 1; lv[o+3] = r; lv[o+4] = g; lv[o+5] = bl; lv[o+6] = al;
+    o += 7;
+    lv[o] = x2; lv[o+1] = y2; lv[o+2] = 1; lv[o+3] = r; lv[o+4] = g; lv[o+5] = bl; lv[o+6] = al;
+    lc += 2;
+  };
+
+  if (style === 'marks'){
+    const len0 = (5 + sz*3) * .5, thick = sz >= 2.4;
+    for (let i = 0; i < n; i++){
+      if (ca[i] < .02) continue;
+      const an = mx < .5 ? A.ang[i] : B.ang[i];
+      let dx = Math.cos(an), dy = Math.sin(an);
+      const sp2 = Math.sqrt(vx[i]*vx[i] + vy[i]*vy[i]);
+      if (sp2 > 20*sc){
+        const w = Math.min(1, sp2/(260*sc)), sg = dx*vx[i] + dy*vy[i] < 0 ? -1 : 1;
+        const nx = dx*sg*(1 - w) + vx[i]/sp2*w, ny = dy*sg*(1 - w) + vy[i]/sp2*w, nl = Math.sqrt(nx*nx + ny*ny) || 1;
+        dx = nx/nl; dy = ny/nl;
+      }
+      const len = len0 * sf[i] * (1 + Math.min(1.6, sp2/(300*sc)));
+      const al = ca[i] * .9;
+      pushLine(sx[i] - dx*len, sy[i] - dy*len, sx[i] + dx*len, sy[i] + dy*len, cr[i], cg[i], cb[i], al);
+      if (thick) pushLine(sx[i] - dx*len - dy*.9, sy[i] - dy*len + dx*.9, sx[i] + dx*len - dy*.9, sy[i] + dy*len + dx*.9, cr[i], cg[i], cb[i], al);
+    }
+    drawBuf(lv, lc, gl.LINES, 0);
+  } else {
+    if (style === 'links'){
+      const M = Math.min(n, 3200), step = Math.max(1, Math.floor(n / M)), ld = .05 * Math.min(aw, layout.ah);
+      const cols = Math.ceil(W/ld) + 3, rows = Math.ceil(H/ld) + 3;
+      if (gridHeads.length < cols*rows) gridHeads = new Int32Array(cols*rows);
+      gridHeads.fill(-1, 0, cols*rows);
+      for (let j = 0; j < M; j++){
+        const i = j*step, gx = (sx[i]/ld | 0) + 1, gy = (sy[i]/ld | 0) + 1;
+        if (!(gx >= 0 && gy >= 0 && gx < cols && gy < rows)){ gridNext[j] = -2; continue; }
+        const c = gy*cols + gx; gridNext[j] = gridHeads[c]; gridHeads[c] = j;
+      }
+      for (let j = 0; j < M; j++){
+        if (gridNext[j] === -2) continue;
+        const i = j*step, gx = (sx[i]/ld | 0) + 1, gy = (sy[i]/ld | 0) + 1;
+        let made = 0;
+        for (let oy = -1; oy <= 1 && made < 3; oy++) for (let ox = -1; ox <= 1 && made < 3; ox++){
+          const yy = gy + oy, xx = gx + ox;
+          if (xx < 0 || yy < 0 || xx >= cols || yy >= rows) continue;
+          for (let k = gridHeads[yy*cols + xx]; k !== -1 && made < 3; k = gridNext[k]){
+            if (k <= j) continue;
+            const m = k*step, dx = sx[m] - sx[i], dy = sy[m] - sy[i], d = Math.sqrt(dx*dx + dy*dy);
+            if (d < ld){
+              const al = Math.min(1, (1 - d/ld) * 1.2 * (ca[i] + ca[m]) * .5);
+              if (al > .02){ pushLine(sx[i], sy[i], sx[m], sy[m], (cr[i] + cr[m])*.5, (cg[i] + cg[m])*.5, (cb[i] + cb[m])*.5, al); made++; }
+            }
+          }
+        }
+      }
+      drawBuf(lv, lc, gl.LINES, 0);
+    }
+    const ps = style === 'links' ? sz*.8 : sz;
+    for (let i = 0; i < n; i++){
+      const o = i*7;
+      pv[o] = sx[i]; pv[o+1] = sy[i]; pv[o+2] = ps * (.6 + .8*seed2[i]) * sf[i];
+      pv[o+3] = cr[i]; pv[o+4] = cg[i]; pv[o+5] = cb[i]; pv[o+6] = ca[i];
+    }
+    drawBuf(pv, n, gl.POINTS, 1);
+    if (scanOn){
+      lc = 0;
+      pushLine(scanX, layout.cy - layout.ah/2 - 10, scanX, layout.cy + layout.ah/2 + 10, ACCENT[0], ACCENT[1], ACCENT[2], .7);
+      drawBuf(lv, lc, gl.LINES, 0);
+    }
+  }
+}
+
+let perfEma = 16.7, perfBad = 0, autoAt = 0, fpsOn = false, fpsAt = 0;
+function frame(now){
+  requestAnimationFrame(frame);
+  if (!imgs.length) return;
+  const raw = now - last;
+  // automatic performance tuning: fewer particles if the frame rate stays low
+  if (raw > 0 && raw < 400 && !depthBusy && now > 1500){
+    perfEma += (raw - perfEma) * (perfEma > 60 ? .2 : .05);
+    perfBad = perfEma > 26 ? perfBad + raw : 0;
+    if (perfBad > 1000 && S.count > 2000){
+      S.count = Math.max(2000, Math.round(S.count * (perfEma > 60 ? .5 : .7) / 500) * 500); perfBad = 0; perfEma = 20; reflect();
+      toast('Density lowered to ' + S.count + ' to keep things smooth.');
+    } else if (perfBad > 1000 && dprCap > 1){
+      dprCap = 1; perfBad = 0; perfEma = 20; resize();
+      toast('Render resolution lowered to keep things smooth.');
+    }
+    if (fpsOn && now - fpsAt > 500){ fpsAt = now; $('#fps').textContent = Math.round(1000 / perfEma) + ' fps · ' + S.count + ' dots · ' + dpr + '× · ' + (cam.on ? 'cam' : 'no cam'); }
+  }
+  if (S.auto && now > autoAt){ if (autoAt) surprise(); autoAt = now + 12000; }
+  let dt = Math.min(.05, raw/1000 || .016); last = now;
+  audioTick(now);
+  if (cam.on) camTick(false);
+  dt *= S.speed; t += dt;
+  render(update(Math.min(dt, .06)));
+}
+
+/* ---------- Controls ---------- */
+const FMT = {
+  count: v => (v/1000).toFixed(1) + 'k', size: v => (+v).toFixed(1), speed: v => (+v).toFixed(2) + '×',
+  contrast: v => (+v).toFixed(2), bright: v => (v > 0 ? '+' : '') + (+v).toFixed(2),
+  tones: v => v < 2 ? 'off' : v, react: v => (+v).toFixed(2), relief: v => (+v).toFixed(2)
+};
+function reflect(){
+  document.querySelectorAll('.seg[data-key]').forEach(seg => {
+    const cur = seg.dataset.key === 'sound' ? audio.mode : S[seg.dataset.key];
+    seg.querySelectorAll('button').forEach(b => b.classList.toggle('on', b.dataset.v === cur));
+  });
+  document.querySelectorAll('.seg[data-toggles] button').forEach(b => b.classList.toggle('on', !!S[b.dataset.t]));
+  document.querySelectorAll('input[type=range]').forEach(r => {
+    r.value = S[r.dataset.key];
+    const out = $('#o_' + r.dataset.key); if (out) out.textContent = FMT[r.dataset.key](S[r.dataset.key]);
+  });
+  $('#btnAuto').classList.toggle('on', S.auto);
+  document.body.dataset.theme = S.bg === 'white' ? 'light' : 'dark';
+}
+function setOpt(key, val){
+  S[key] = val;
+  if (key === 'bg' || key === 'style') needClear = true;
+  if (key === 'depthSrc') applyDepth();
+  reflect();
+}
+document.querySelectorAll('.seg[data-key]').forEach(seg => seg.addEventListener('click', e => {
+  const b = e.target.closest('button'); if (!b) return;
+  if (seg.dataset.key === 'sound'){
+    if (b.dataset.v === 'off') audioStop(); else if (b.dataset.v === 'mic') audioMic(); else $('#audioFile').click();
+    return;
+  }
+  setOpt(seg.dataset.key, b.dataset.v);
+}));
+document.querySelectorAll('.seg[data-toggles]').forEach(seg => seg.addEventListener('click', e => {
+  const b = e.target.closest('button'); if (!b) return;
+  S[b.dataset.t] = !S[b.dataset.t]; reflect();
+}));
+document.querySelectorAll('input[type=range]').forEach(r => r.addEventListener('input', () => {
+  const k = r.dataset.key, v = +r.value, old = S.count;
+  S[k] = v; if (k === 'count' && v > old) scatter(old, v);
+  reflect();
+}));
+
+const pick = arr => arr[Math.random() * arr.length | 0];
+function surprise(){
+  S.effect = pick(['gather', 'drift', 'splash', 'depth']);
+  S.style = pick(['dots', 'trails', 'marks', 'links', 'scan']);
+  S.move = pick(['travel', 'swarm', 'melt']);
+  S.stipple = Math.random() < .25; S.tones = pick([0, 0, 0, 3, 5]);
+  S.contrast = pick([1, 1, 1.4, 1.8]); needClear = true; reflect();
+}
+function toast(msg){
+  const el = $('#toast'); el.textContent = msg; el.classList.add('on');
+  clearTimeout(toast.h); toast.h = setTimeout(() => el.classList.remove('on'), 2800);
+}
+function toggleUI(){ document.body.classList.toggle('ui-off'); updateLayout(); needClear = true; }
+$('#btnHide').onclick = toggleUI; $('#btnShow').onclick = toggleUI;
+$('#btnShuffle').onclick = surprise;
+$('#btnReset').onclick = orbReset;
+$('#btnAuto').onclick = () => { S.auto = !S.auto; autoAt = 0; reflect(); if (S.auto) toast('Auto mode: a new look every 12 seconds.'); };
+$('#textAdd').onclick = addText;
+$('#textIn').addEventListener('keydown', e => { if (e.key === 'Enter') addText(); });
+window.addEventListener('keydown', e => {
+  if (e.target.matches('input') || e.ctrlKey || e.metaKey || e.altKey) return;
+  const k = e.key.toLowerCase();
+  if (k === 'h') toggleUI();
+  else if (k === 'r') surprise();
+  else if (k === 'a') $('#btnAuto').click();
+  else if (k === 'c') cam.on ? camStop() : camStart();
+  else if (k === 'f'){ fpsOn = !fpsOn; $('#fps').style.display = fpsOn ? 'block' : 'none'; }
+  const eff = { '1':'gather', '2':'drift', '3':'splash', '4':'depth' }[k]; if (eff) setOpt('effect', eff);
+});
+
+$('#file').addEventListener('change', e => { addFiles(e.target.files, false); e.target.value = ''; });
+$('#audioFile').addEventListener('change', e => { if (e.target.files[0]) audioFile(e.target.files[0]); e.target.value = ''; });
+let dragDepth = 0;
+window.addEventListener('dragenter', e => { e.preventDefault(); dragDepth++; $('#drop').classList.add('on'); });
+window.addEventListener('dragleave', () => { if (--dragDepth <= 0){ dragDepth = 0; $('#drop').classList.remove('on'); } });
+window.addEventListener('dragover', e => e.preventDefault());
+window.addEventListener('drop', e => {
+  e.preventDefault(); dragDepth = 0; $('#drop').classList.remove('on');
+  const fs = [...e.dataTransfer.files], au = fs.find(f => f.type.startsWith('audio/'));
+  if (au) audioFile(au);
+  const im = fs.filter(f => f.type.startsWith('image/')); if (im.length) addFiles(im, true);
+});
+window.addEventListener('paste', e => {
+  if (e.target.matches && e.target.matches('input')) return;
+  const fs = [...(e.clipboardData?.items || [])].filter(i => i.type.startsWith('image/')).map(i => i.getAsFile());
+  if (fs.length) addFiles(fs, false);
+});
+
+// Drag = rotate in 3D (with inertia), click without moving = burst, wheel = zoom, double-click = reset view
+canvas.addEventListener('pointerdown', e => {
+  try { canvas.setPointerCapture(e.pointerId); } catch (err) {}
+  Object.assign(orb, { dragging:true, moved:false, resetting:false, lastX:e.clientX, lastY:e.clientY, sx:e.clientX, sy:e.clientY, lastT:performance.now(), vyaw:0, vpitch:0 });
+});
+canvas.addEventListener('pointermove', e => {
+  ptr.x = e.clientX - layout.cx; ptr.y = e.clientY - layout.cy; ptr.active = true;
+  if (!orb.dragging) return;
+  if (!orb.moved && Math.hypot(e.clientX - orb.sx, e.clientY - orb.sy) > 5) orb.moved = true;
+  if (!orb.moved) return;
+  const now = performance.now(), dtm = Math.max(8, now - orb.lastT) / 1000;
+  const dyaw = (e.clientX - orb.lastX) * .008, dpitch = -(e.clientY - orb.lastY) * .008;
+  orb.yaw += dyaw; orb.pitch = Math.max(-1.45, Math.min(1.45, orb.pitch + dpitch));
+  orb.vyaw += (dyaw/dtm - orb.vyaw) * .4; orb.vpitch += (dpitch/dtm - orb.vpitch) * .4;     // smoothed release speed
+  orb.lastX = e.clientX; orb.lastY = e.clientY; orb.lastT = now;
+});
+const endDrag = e => {
+  if (!orb.dragging) return;
+  orb.dragging = false;
+  if (!orb.moved) addBurst(e.clientX - layout.cx, e.clientY - layout.cy, S.effect === 'splash' ? 1 : .55);
+  else if (performance.now() - orb.lastT > 120) orb.vyaw = orb.vpitch = 0;                   // stopped before release: no fling
+  const sp_ = Math.hypot(orb.vyaw, orb.vpitch); if (sp_ > 6){ orb.vyaw *= 6/sp_; orb.vpitch *= 6/sp_; }
+};
+canvas.addEventListener('pointerup', endDrag);
+canvas.addEventListener('pointercancel', () => { orb.dragging = false; });
+canvas.addEventListener('pointerleave', () => { ptr.active = false; });
+canvas.addEventListener('wheel', e => {
+  e.preventDefault(); orb.resetting = false;
+  orb.zoom = Math.max(.4, Math.min(4, orb.zoom * Math.exp(-e.deltaY * .0013)));
+}, { passive:false });
+canvas.addEventListener('dblclick', orbReset);
+
+function download(blob, name){
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name;
+  document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+}
+const stamp = () => new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+$('#btnPng').onclick = () => canvas.toBlob(b => download(b, 'swarm-' + stamp() + '.png'));
+let rec = null, chunks = [];
+$('#btnRec').onclick = function(){
+  if (rec){ rec.stop(); return; }
+  if (!window.MediaRecorder) return toast('Recording is not supported in this browser.');
+  const mime = ['video/webm;codecs=vp9', 'video/webm;codecs=vp8', 'video/webm'].find(m => MediaRecorder.isTypeSupported(m));
+  rec = new MediaRecorder(canvas.captureStream(60), { mimeType: mime, videoBitsPerSecond: 12e6 }); chunks = [];
+  rec.ondataavailable = e => e.data.size && chunks.push(e.data);
+  rec.onstop = () => { download(new Blob(chunks, { type: 'video/webm' }), 'swarm-' + stamp() + '.webm'); rec = null; this.classList.remove('rec'); this.textContent = '● Record'; };
+  rec.start(); this.classList.add('rec'); this.textContent = '■ Stop';
+};
+
+/* ---------- Start ---------- */
+window.addEventListener('resize', resize);
+resize(); reflect();
+// build the demo shapes after the first paint, so the page never looks frozen while it starts
+setTimeout(() => {
+  rebuildImages(); $('#boot').remove(); last = performance.now();
+  requestAnimationFrame(frame);
+}, 40);
+})();
+</script>
+</body>
+</html>
