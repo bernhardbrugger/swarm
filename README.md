@@ -72,6 +72,14 @@ If something feels slow or freezes, open [`check.html`](check.html) ([live](http
 
 Any current Chrome, Edge, Firefox or Safari with WebGL. The webcam needs `getUserMedia`; the AI depth needs WebAssembly and workers.
 
+## Limits
+
+- **No automated tests.** It is one static page; it was checked by hand in desktop Chromium. [`check.html`](check.html) diagnoses a slow browser, it does not test the app.
+- **Touch is basic.** One-finger drag rotates and a tap bursts, but there is no pinch zoom, and the keyboard shortcuts need a keyboard.
+- **Size caps.** At most four images and 20,000 particles; the webcam is analysed at 192 px width, so fine detail is lost.
+- **AI depth needs the network once.** The model (about 27 MB) and its runtime come from Hugging Face and jsDelivr; offline, only the brightness depth works.
+- **Recording depends on the browser.** It needs `MediaRecorder` and `canvas.captureStream`; the container is whatever the browser can record (WebM, or MP4).
+
 ## Credits
 
 - Idea inspired by [Gather 聚 Lite](https://gather.be-of-dao.com) by DAO. Swarm is an independent implementation with its own code and design; it is not affiliated with or endorsed by them.
