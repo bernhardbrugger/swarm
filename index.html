@@ -169,7 +169,7 @@
     <button id="btnAuto" title="Auto-director: changes effect and style every few seconds (A)">Auto</button>
     <button id="btnShuffle" title="Random combination (R)">Shuffle</button>
     <button id="btnPng" title="Save the current frame as PNG">PNG</button>
-    <button id="btnRec" title="Record the animation as WebM">● Record</button>
+    <button id="btnRec" title="Record the animation as a video (WebM, or MP4 where the browser only records MP4)">● Record</button>
     <button id="btnHide" title="Hide controls (H)">Hide</button>
     <a class="gh" href="https://github.com/bernhardbrugger/swarm" target="_blank" rel="noopener" title="Source code on GitHub">GitHub ↗</a>
   </div>
@@ -1232,10 +1232,15 @@ let rec = null, chunks = [];
 $('#btnRec').onclick = function(){
   if (rec){ rec.stop(); return; }
   if (!window.MediaRecorder) return toast('Recording is not supported in this browser.');
-  const mime = ['video/webm;codecs=vp9', 'video/webm;codecs=vp8', 'video/webm'].find(m => MediaRecorder.isTypeSupported(m));
-  rec = new MediaRecorder(canvas.captureStream(60), { mimeType: mime, videoBitsPerSecond: 12e6 }); chunks = [];
+  // WebM first; browsers that only record MP4 (e.g. older Safari versions) get an .mp4 instead of a mislabelled .webm
+  const mime = ['video/webm;codecs=vp9', 'video/webm;codecs=vp8', 'video/webm', 'video/mp4;codecs=avc1', 'video/mp4'].find(m => MediaRecorder.isTypeSupported(m));
+  rec = new MediaRecorder(canvas.captureStream(60), mime ? { mimeType: mime, videoBitsPerSecond: 12e6 } : { videoBitsPerSecond: 12e6 }); chunks = [];
   rec.ondataavailable = e => e.data.size && chunks.push(e.data);
-  rec.onstop = () => { download(new Blob(chunks, { type: 'video/webm' }), 'swarm-' + stamp() + '.webm'); rec = null; this.classList.remove('rec'); this.textContent = '● Record'; };
+  rec.onstop = () => {
+    const type = (rec.mimeType || mime || 'video/webm').split(';')[0].trim();
+    download(new Blob(chunks, { type }), 'swarm-' + stamp() + (type === 'video/mp4' ? '.mp4' : '.webm'));
+    rec = null; this.classList.remove('rec'); this.textContent = '● Record';
+  };
   rec.start(); this.classList.add('rec'); this.textContent = '■ Stop';
 };
 

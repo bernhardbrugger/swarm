@@ -23,7 +23,7 @@ Everything runs in your browser. There is no server, no account and no upload.
 - **Tone controls.** Contrast, brightness, levels (posterize), invert, and *Stipple*, which turns tone into dot density.
 - **Sound reactive.** Use the microphone or an audio file: bass makes the dots pulse and sends shock waves through the swarm.
 - **Auto director and Shuffle.** Let it pick a new look every few seconds, or roll a random combination.
-- **Export.** Save the current frame as PNG or record the animation as WebM.
+- **Export.** Save the current frame as PNG or record the animation as WebM (MP4 in browsers that only record MP4, such as older Safari versions).
 
 ## Controls
 
